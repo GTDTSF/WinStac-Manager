@@ -29,6 +29,13 @@ def is_real_window(hwnd: int):
     # 过滤被DWM遮蔽的窗口（如UWP挂起、其他虚拟桌面窗口）
     if is_window_cloaked(hwnd):
         return False
+
+    # 过滤工具窗口 (ToolWindow)
+    # 这种窗口通常用于浮动工具栏，不会出现在 Alt+Tab 或任务栏中、案例：微信表情框
+    ex_style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
+    if ex_style & win32con.WS_EX_TOOLWINDOW:
+        return False
+
     return True
 
 
@@ -40,7 +47,7 @@ def get_all_windows():
         if is_real_window(hwnd):
             title = win32gui.GetWindowText(hwnd)
 
-            if title and title != "Program Manager":
+            if title and title not in ["Program Manager", "窗口重排器"]:
                 windows.append((hwnd, title))
         return True
 
@@ -100,10 +107,12 @@ def set_z_order(hwnd, insert_after_hwnd):
     # SWP_NOSIZE: 不改变当前大小 (cx, cy)
     # SWP_NOACTIVATE: 不激活窗口
     # SWP_SHOWWINDOW: 显示窗口
-    flags = (win32con.SWP_NOMOVE |
-             win32con.SWP_NOSIZE |
-             win32con.SWP_NOACTIVATE 
-             |win32con.SWP_SHOWWINDOW)
+    flags = (
+            win32con.SWP_NOMOVE
+            | win32con.SWP_NOSIZE
+            | win32con.SWP_NOACTIVATE
+            | win32con.SWP_SHOWWINDOW
+    )
 
     win32gui.SetWindowPos(
         hwnd,  # 目标窗口句柄
@@ -132,6 +141,7 @@ def get_window_rect(hwnd):
     except Exception:
         return None
 
+
 def is_click_on_close_button(hwnd: int, x: int, y: int):
     """
     通过坐标判断是否点击了右上角区域 (针对自绘标题栏软件)
@@ -139,7 +149,7 @@ def is_click_on_close_button(hwnd: int, x: int, y: int):
     rect = get_window_rect(hwnd)
     if not rect:
         return False
-    
+
     left, top, right, bottom = rect
     width = right - left
     height = bottom - top
@@ -152,16 +162,22 @@ def is_click_on_close_button(hwnd: int, x: int, y: int):
     # 标题栏高度通常在 30~40 像素
     # 关闭按钮宽度通常在 45~50 像素
     # 我们设置一个稍微宽松的范围：右上角 60x40 的区域
-    
+
     # 1. 必须在窗口顶部 40 像素内
     if rel_y < 0 or rel_y > 40:
         return False
-    
+
     # 2. 必须在窗口最右侧 60 像素内
     if rel_x > (width - 60) and rel_x < width:
         return True
-        
+
     return False
+
+
+# === 检查窗口是否存活 === #
+def is_window_valid(hwnd: int):
+    return win32gui.IsWindow(hwnd) and win32gui.IsWindowVisible(hwnd)
+
 
 if __name__ == '__main__':
     windows = get_all_windows()

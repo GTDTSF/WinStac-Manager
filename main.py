@@ -35,6 +35,18 @@ class WindowManager(QMainWindow):
         # 第一次加载数据
         self.refresh_window_list()
 
+        # 定时刷新左侧列表
+        self.refresh_timer = QTimer(self)
+        self.refresh_timer.setInterval(1000)
+        self.refresh_timer.timeout.connect(self.refresh_window_list)
+        self.refresh_timer.start()
+
+        # 定时刷新左侧列表
+        self.target_refresh_timer = QTimer(self)
+        self.target_refresh_timer.setInterval(1000)
+        self.target_refresh_timer.timeout.connect(self.has_cleaned_windows)
+        self.target_refresh_timer.start()
+
     # === 初始化界面 === #
     def _init_ui(self):
         central_widget = QWidget()
@@ -95,9 +107,18 @@ class WindowManager(QMainWindow):
         self.watcher.request_rearrange.connect(self.execute_reorder)
         self.watcher.status_changed.connect(self.update_status)
 
-
     # === 刷新源窗口列表 === #
     def refresh_window_list(self):
+        now_windows = win_api.get_all_windows()
+
+        if not hasattr(self, 'pre_windows'):
+            self.pre_windows = []
+
+        if set(now_windows) == set(self.pre_windows):
+            return
+
+        self.pre_windows = now_windows
+
         logger.info("=== 开始刷新窗口列表 ===")
         self.source_list_widget.clear()
         windows = win_api.get_all_windows()
@@ -140,25 +161,42 @@ class WindowManager(QMainWindow):
         selected_item = self.target_list_widget.selectedItems()
         if not selected_item:  # 无选中项直接返回
             return
+
+        current_row = self.target_list_widget.row(selected_item[0])
+
         widget = self.target_list_widget.itemWidget(selected_item[0])
         item_data = widget.item_data
         if self.engine.move_item(item_data=item_data, direction='up'):
             logger.info(f"成功上移管理窗口：句柄={item_data.hwnd}, 标题={item_data.title}")
             self.refresh_target_ui()
 
+            new_row = max(current_row - 1, 0)
+            self.target_list_widget.setCurrentRow(new_row)
+
     def move_item_down(self):
         selected_item = self.target_list_widget.selectedItems()
         if not selected_item:  # 无选中项直接返回
             return
+
+        current_row = self.target_list_widget.row(selected_item[0])
+
         widget = self.target_list_widget.itemWidget(selected_item[0])
         item_data = widget.item_data
         if self.engine.move_item(item_data=item_data, direction='down'):
             logger.info(f"成功下移管理窗口：句柄={item_data.hwnd}, 标题={item_data.title}")
             self.refresh_target_ui()
 
+            new_row = min(current_row + 1, self.target_list_widget.count() -1)
+            self.target_list_widget.setCurrentRow(new_row)
+
     # === 刷新管理窗口界面 === #
+    def has_cleaned_windows(self):
+        if self.engine.clean_invalid_windows():
+            self.refresh_target_ui()
+
     def refresh_target_ui(self):
         self.target_list_widget.clear()
+
         self.watcher.update_monitored_hwnds(self.engine.targets)
 
         item_data_list = self.engine.targets

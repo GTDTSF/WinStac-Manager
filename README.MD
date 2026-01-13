@@ -1,4 +1,4 @@
-# 窗口重排器 (Window Rearranger)
+# 窗口重排器 (WinStac Manager)
 
 **窗口重排器** 是一个基于 Python (PySide6) 开发的 Windows 桌面工具。它允许用户指定一组窗口，并强制它们按照设定的顺序（Z-Order）进行排列。
 

@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple, Set
 
 import win32con
+from PySide6.QtCore import QTimer
+
 import win_api
 from ui_widgets import ItemData
 from logger import logger
@@ -65,7 +67,7 @@ class WindowRankEngine:
 
         pre_hwnd = None
         found_top = None
-        
+
         for target in self._targets:
             hwnd = target.hwnd
             title = target.title
@@ -76,14 +78,29 @@ class WindowRankEngine:
 
             if not found_top:
                 logger.info(f"  -> 置顶: {title}")
+
+                # 强行置顶
                 win_api.set_z_order(hwnd, win32con.HWND_TOPMOST)
                 win_api.set_z_order(hwnd, win32con.HWND_NOTOPMOST)
+
                 found_top = True
                 pre_hwnd = hwnd
             else:
                 logger.info(f"  -> 跟随：{title}")
                 win_api.set_z_order(hwnd, pre_hwnd)
                 pre_hwnd = hwnd
+
         logger.info(f"  - 结束")
         return True
 
+    # === 检测窗口存活情况 ===#
+    def clean_invalid_windows(self):
+
+        cleaned = False
+
+        for target in self._targets:
+            hwnd = target.hwnd
+            if not win_api.is_window_valid(hwnd):
+                self.remove_window(target)
+                cleaned = True
+        return cleaned

@@ -6,6 +6,7 @@ from PySide6.QtCore import QObject, QThread, Signal, QTimer
 import win_api
 from logger import logger
 
+
 # === 鼠标监控 === #
 class _MouseWatcher(QObject):
     """
@@ -43,6 +44,7 @@ class WindowWatcher(QObject):
     def __init__(self):
         super().__init__()
         self._targets = []
+        self.known_hwnds = set()
         # 配置后台线程
         self.thread = QThread()
         self.mouse_worker = _MouseWatcher()
@@ -74,12 +76,11 @@ class WindowWatcher(QObject):
         """
         if not self._targets:
             return
-        
+
         hwnd_clicked = win_api.get_root_window_at(x, y)
         if win_api.is_click_on_close_button(hwnd_clicked, x, y):
             self.status_changed.emit(f"检测到右上角点击 -> 忽略重排", "color: orange;")
             return
-
 
         hwnd_clicked = win_api.get_root_window_at(x, y)
         for target in self._targets:

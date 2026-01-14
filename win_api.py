@@ -16,7 +16,8 @@ def is_window_cloaked(hwnd: int):
     return hr == 0 and cloaked.value != 0
 
 
-def is_real_window(hwnd: int):
+# 暂时废弃
+def is_real_window(hwnd: int, without_tool=False):
     # 过滤没有标题的窗口
     if win32gui.GetWindowTextLength(hwnd) == 0:
         return False
@@ -32,19 +33,20 @@ def is_real_window(hwnd: int):
 
     # 过滤工具窗口 (ToolWindow)
     # 这种窗口通常用于浮动工具栏，不会出现在 Alt+Tab 或任务栏中、案例：微信表情框
-    ex_style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
-    if ex_style & win32con.WS_EX_TOOLWINDOW:
-        return False
+    if without_tool:
+        ex_style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
+        if ex_style & win32con.WS_EX_TOOLWINDOW:
+            return False
 
     return True
 
 
-def get_all_windows():
+def get_all_windows(without_tool=False):
     """获取所有真实可见窗口的 (hwnd, title)"""
     windows = []
 
     def callback(hwnd, extra):
-        if is_real_window(hwnd):
+        if is_real_window(hwnd,without_tool):
             title = win32gui.GetWindowText(hwnd)
 
             if title and title not in ["Program Manager", "窗口重排器"]:
@@ -98,7 +100,7 @@ def is_minimized(hwnd: int):
 
 
 # === 排序窗口 === #
-def set_z_order(hwnd, insert_after_hwnd):
+def set_z_order(hwnd, insert_after_hwnd, force_show=True):
     """
     设置窗口的 Z 轴顺序 (Z-Order)。
     """
@@ -111,8 +113,11 @@ def set_z_order(hwnd, insert_after_hwnd):
             win32con.SWP_NOMOVE
             | win32con.SWP_NOSIZE
             | win32con.SWP_NOACTIVATE
-            | win32con.SWP_SHOWWINDOW
     )
+    if force_show:
+        flags |= win32con.SWP_SHOWWINDOW
+    else:
+        pass
 
     win32gui.SetWindowPos(
         hwnd,  # 目标窗口句柄
@@ -174,9 +179,11 @@ def is_click_on_close_button(hwnd: int, x: int, y: int):
     return False
 
 
-# === 检查窗口是否存活 === #
-def is_window_valid(hwnd: int):
-    return win32gui.IsWindow(hwnd) and win32gui.IsWindowVisible(hwnd)
+# === 获取窗口pid === #
+def get_window_pid(hwnd: int):
+    """获取窗口对应的进程ID"""
+    _, pid = win32process.GetWindowThreadProcessId(hwnd)
+    return pid
 
 
 if __name__ == '__main__':

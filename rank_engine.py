@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Tuple, Set
 
 import win32con
+import win32gui
 from PySide6.QtCore import QTimer
 
 import win_api
@@ -25,7 +26,30 @@ class WindowRankEngine:
         if any(target.hwnd == item_data.hwnd for target in self._targets):
             return False
 
+        rank = 1
+        if self._targets:
+            last_target = self._targets[-1]
+            rank = last_target.rank + 1
+        item_data.rank = rank
+
         self._targets.append(item_data)
+        return True
+
+    def insert_derived_window(self, child_hwnd, child_title, parent_hwnd):
+        if any(target.hwnd == child_hwnd for target in self._targets):
+            return False
+
+        parent_idx = -1
+        parent_rank = 1
+        for i, target in enumerate(self._targets):
+            if target.hwnd == parent_hwnd:
+                parent_idx = i
+                parent_rank = target.rank
+                break
+
+        new_item = ItemData(child_hwnd, child_title, rank=parent_rank, window_type='TOOL')
+        self._targets.insert(parent_idx, new_item)
+        logger.info(f"挂载工具窗口: [{child_title}] -> [{self._targets[parent_idx].title}]")
         return True
 
     # === 移除窗口 === #
@@ -62,45 +86,54 @@ class WindowRankEngine:
     # === 执行重排 === #
     def execute_reorder(self):
         logger.info("=== 开始执行窗口重排序列 ===")
-        if len(self._targets) == 0:
+        if not self._targets:
             return False
 
         pre_hwnd = None
-        found_top = None
 
         for target in self._targets:
-            hwnd = target.hwnd
             title = target.title
-
-            if win_api.is_minimized(hwnd):
-                logger.info(f"  X 跳过：{title}处于最小化状态， ")
+            # 1. 基础存活检查
+            if not win32gui.IsWindow(target.hwnd):
                 continue
 
-            if not found_top:
+            # 2. 获取当前可见性
+            is_visible = win32gui.IsWindowVisible(target.hwnd)
+            # === 核心逻辑：工具窗口休眠管理 === #
+            if target.window_type == 'TOOL':
+                # 如果工具窗口隐藏了：跳过。
+                if not is_visible:
+                    continue
+
+                # 如果是可见的：参与排序，但不强制发送 Show 指令
+                force_show = False
+
+            # === 普通窗口逻辑 === #
+            else:
+                # 如果主窗口最小化或隐藏，跳过排序
+                if win_api.is_minimized(target.hwnd) or not is_visible:
+                    continue
+                force_show = True
+
+            # === 执行线性排序 === #
+            if pre_hwnd is None:
                 logger.info(f"  -> 置顶: {title}")
-
-                # 强行置顶
-                win_api.set_z_order(hwnd, win32con.HWND_TOPMOST)
-                win_api.set_z_order(hwnd, win32con.HWND_NOTOPMOST)
-
-                found_top = True
-                pre_hwnd = hwnd
+                win_api.set_z_order(target.hwnd, win32con.HWND_TOPMOST, force_show=force_show)
+                win_api.set_z_order(target.hwnd, win32con.HWND_NOTOPMOST, force_show=force_show)
             else:
                 logger.info(f"  -> 跟随：{title}")
-                win_api.set_z_order(hwnd, pre_hwnd)
-                pre_hwnd = hwnd
+                win_api.set_z_order(target.hwnd, pre_hwnd, force_show=force_show)
 
+            pre_hwnd = target.hwnd
         logger.info(f"  - 结束")
         return True
 
     # === 检测窗口存活情况 ===#
     def clean_invalid_windows(self):
-
         cleaned = False
-
-        for target in self._targets:
-            hwnd = target.hwnd
-            if not win_api.is_window_valid(hwnd):
+        for target in list(self._targets):
+            if not win32gui.IsWindow(target.hwnd):
                 self.remove_window(target)
                 cleaned = True
         return cleaned
+

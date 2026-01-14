@@ -4,10 +4,10 @@ import qdarktheme
 import win_api
 import ui_widgets
 from logger import logger
-from PySide6.QtCore import Qt, QSize, QTimer
+from PySide6.QtCore import QSize, QTimer
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                                QListWidget, QPushButton, QLabel, QListWidgetItem,
-                               QAbstractItemView, QApplication)
+                               QApplication)
 
 from rank_engine import WindowRankEngine
 from auto_monitor import WindowWatcher
@@ -42,10 +42,10 @@ class WindowManager(QMainWindow):
         self.refresh_timer.start()
 
         # 定时刷新左侧列表
-        self.target_refresh_timer = QTimer(self)
-        self.target_refresh_timer.setInterval(1000)
-        self.target_refresh_timer.timeout.connect(self.has_cleaned_windows)
-        self.target_refresh_timer.start()
+        self.maintenance_timer = QTimer(self)
+        self.maintenance_timer.setInterval(1000)
+        self.maintenance_timer.timeout.connect(self.auto_clean_targets)
+        self.maintenance_timer.start()
 
     # === 初始化界面 === #
     def _init_ui(self):
@@ -94,34 +94,34 @@ class WindowManager(QMainWindow):
     # === 绑定信号 === #
     def _init_connections(self):
         # 双击
-        self.source_list_widget.itemDoubleClicked.connect(self.add_to_target_list)
+        self.source_list_widget.itemDoubleClicked.connect(self.add_target)
         self.target_list_widget.itemDoubleClicked.connect(self.remove_target)
         # 移动按钮
         self.btn_up.clicked.connect(self.move_item_up)
         self.btn_down.clicked.connect(self.move_item_down)
         # 重排
         self.btn_refresh.clicked.connect(self.refresh_window_list)
-        # self.watcher.request_rearrange.connect(self.execute_reorder_delayed)
         self.btn_apply.clicked.connect(self.execute_reorder)
+
         # 鼠标监控重排
-        self.watcher.request_rearrange.connect(self.execute_reorder)
+        self.watcher.request_rearrange.connect(self._scan_and_reorder_delay)
         self.watcher.status_changed.connect(self.update_status)
 
     # === 刷新源窗口列表 === #
     def refresh_window_list(self):
-        now_windows = win_api.get_all_windows()
+        current_windows = win_api.get_all_windows()
 
-        if not hasattr(self, 'pre_windows'):
-            self.pre_windows = []
+        if not hasattr(self, 'prev_windows '):
+            self.prev_windows = []
 
-        if set(now_windows) == set(self.pre_windows):
+        if set(current_windows) == set(self.prev_windows):
             return
 
-        self.pre_windows = now_windows
+        self.prev_windows = current_windows
 
         logger.info("=== 开始刷新窗口列表 ===")
         self.source_list_widget.clear()
-        windows = win_api.get_all_windows()
+        windows = win_api.get_all_windows(without_tool=True)
         logger.info(f"成功获取到 {len(windows)} 个窗口")
         for hwnd, title in windows:
 
@@ -141,7 +141,7 @@ class WindowManager(QMainWindow):
             logger.debug(f"成功添加窗口：句柄={hwnd}, 标题={title}")
 
     # === 增加、移除管理窗口 === #
-    def add_to_target_list(self, item):
+    def add_target(self, item):
 
         widget = self.source_list_widget.itemWidget(item)
         item_data = widget.item_data
@@ -155,6 +155,46 @@ class WindowManager(QMainWindow):
         if self.engine.remove_window(item_data=item_data):
             logger.info(f"成功移除管理窗口：句柄={item_data.hwnd}, 标题={item_data.title}")
             self.refresh_target_ui()
+
+    def _scan_and_reorder_delay(self):
+        QTimer.singleShot(1, self._scan_and_reorder)
+
+    def _scan_and_reorder(self):
+        self._scan_for_child_windows()
+        self.execute_reorder()
+
+    def _scan_for_child_windows(self):
+        current_windows = win_api.get_all_windows()
+        current_hwnds_set = {hwnd for hwnd, title in current_windows}
+
+        if hasattr(self, "known_hwnds"):
+            new_hwnds = current_hwnds_set - self.known_hwnds
+        else:
+            new_hwnds = current_hwnds_set
+
+        self.known_hwnds = current_hwnds_set
+
+        if not new_hwnds:
+            return
+
+        targets = self.engine.targets
+        if not targets:
+            return
+
+        managed_pids = {}
+        for target in targets:
+            pid = win_api.get_window_pid(target.hwnd)
+            if pid:
+                managed_pids[pid] = target.hwnd
+
+        for hwnd, title in current_windows:
+            if hwnd in new_hwnds:
+                new_pid = win_api.get_window_pid(hwnd)
+
+                if new_pid in managed_pids:
+                    parent_hwnd = managed_pids[new_pid]
+                    self.engine.insert_derived_window(hwnd, title, parent_hwnd)
+        self.execute_reorder()
 
     # === 上移、下移管理窗口 === #
     def move_item_up(self):
@@ -186,11 +226,11 @@ class WindowManager(QMainWindow):
             logger.info(f"成功下移管理窗口：句柄={item_data.hwnd}, 标题={item_data.title}")
             self.refresh_target_ui()
 
-            new_row = min(current_row + 1, self.target_list_widget.count() -1)
+            new_row = min(current_row + 1, self.target_list_widget.count() - 1)
             self.target_list_widget.setCurrentRow(new_row)
 
-    # === 刷新管理窗口界面 === #
-    def has_cleaned_windows(self):
+    # === 管理窗口界面 === #
+    def auto_clean_targets(self):
         if self.engine.clean_invalid_windows():
             self.refresh_target_ui()
 
@@ -214,10 +254,6 @@ class WindowManager(QMainWindow):
             self.target_list_widget.setItemWidget(list_item, widget)
 
     # === 执行重排 === #
-    def execute_reorder_delayed(self):
-        # 延迟 150ms，给予系统喘息时间，通常 100-200ms 对用户无感但对系统足够
-        QTimer.singleShot(1, self.execute_reorder)
-
     def execute_reorder(self):
         self.engine.execute_reorder()
         self.refresh_target_ui()

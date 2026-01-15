@@ -1,6 +1,7 @@
 import win32gui, win32con, win32process
 import ctypes
 from ctypes import wintypes
+from logger import logger
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPixmap
@@ -17,7 +18,7 @@ def is_window_cloaked(hwnd: int):
 
 
 # 暂时废弃
-def is_real_window(hwnd: int, without_tool=False):
+def is_real_window(hwnd: int, filter):
     # 过滤没有标题的窗口
     if win32gui.GetWindowTextLength(hwnd) == 0:
         return False
@@ -31,9 +32,9 @@ def is_real_window(hwnd: int, without_tool=False):
     if is_window_cloaked(hwnd):
         return False
 
-    # 过滤工具窗口 (ToolWindow)
-    # 这种窗口通常用于浮动工具栏，不会出现在 Alt+Tab 或任务栏中、案例：微信表情框
-    if without_tool:
+    if filter:
+        # 过滤工具窗口 (ToolWindow)
+        # 这种窗口通常用于浮动工具栏，不会出现在 Alt+Tab 或任务栏中、案例：微信表情框
         ex_style = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
         if ex_style & win32con.WS_EX_TOOLWINDOW:
             return False
@@ -41,16 +42,16 @@ def is_real_window(hwnd: int, without_tool=False):
     return True
 
 
-def get_all_windows(without_tool=False):
+def get_all_windows(filter=True):
     """获取所有真实可见窗口的 (hwnd, title)"""
     windows = []
 
     def callback(hwnd, extra):
-        if is_real_window(hwnd,without_tool):
-            title = win32gui.GetWindowText(hwnd)
-
-            if title and title not in ["Program Manager", "窗口重排器"]:
+        title = win32gui.GetWindowText(hwnd)
+        if is_real_window(hwnd, filter):
+            if title not in ["Program Manager", "窗口重排器"]:
                 windows.append((hwnd, title))
+
         return True
 
     win32gui.EnumWindows(callback, None)
@@ -185,6 +186,59 @@ def get_window_pid(hwnd: int):
     _, pid = win32process.GetWindowThreadProcessId(hwnd)
     return pid
 
+
+# === 检查附属关系 === #
+def is_son_window(parent_hwnd: int, target_hwnd: int):
+    # --- 1. 检查 Win32 Owner 关系 (显式父子关系) ---
+    try:
+        owner = win32gui.GetWindow(target_hwnd, win32con.GW_OWNER)
+        if owner == parent_hwnd:
+            return True
+    except Exception:
+        # 窗口可能已关闭
+        return False
+
+    try:
+        _, parent_pid = win32process.GetWindowThreadProcessId(parent_hwnd)
+        _, target_pid = win32process.GetWindowThreadProcessId(target_hwnd)
+    except Exception:
+        return False
+
+    if parent_pid != target_pid:
+        return False
+
+    try:
+        # 获取样式
+        style = win32gui.GetWindowLong(target_hwnd, win32con.GWL_STYLE)
+        ex_style = win32gui.GetWindowLong(target_hwnd, win32con.GWL_EXSTYLE)
+        debug_title = win32gui.GetWindowText(target_hwnd)
+
+        # [日志优化] 将标题和样式信息合并为一条日志，减少刷屏
+        logger.info(f"[检测窗口] HWND: {target_hwnd} | 标题: '{debug_title}' | Style={hex(style)} | ExStyle={hex(ex_style)}")
+
+    except Exception as e:
+        # [日志优化] 使用 logger 记录异常
+        logger.error(f"[检测窗口] HWND: {target_hwnd} 获取窗口样式失败: {e}")
+        return False
+
+    # 判定 A: 工具窗口 (ToolWindow)
+    if ex_style & win32con.WS_EX_TOOLWINDOW:
+        logger.info(f"  -> [结果: True] HWND: {target_hwnd} 判定为子窗口 (命中规则: WS_EX_TOOLWINDOW 工具窗口)")
+        return True
+
+    # 判定 B: 任务栏可见窗口 (AppWindow)
+    if ex_style & win32con.WS_EX_APPWINDOW:
+        logger.info(f"  -> [结果: False] HWND: {target_hwnd} 判定为独立窗口 (命中规则: WS_EX_APPWINDOW 强制任务栏显示)")
+        return False
+
+    # 判定 C: Popup 窗口 vs Overlapped 窗口
+    if style & win32con.WS_POPUP:
+        logger.info(f"  -> [结果: False] HWND: {target_hwnd} 判定为独立窗口 (命中规则: WS_POPUP 弹出式样式)")
+        return False
+
+    # 默认情况
+    logger.info(f"  -> [结果: False] HWND: {target_hwnd} 判定为独立窗口 (未命中子窗口特征，推测为 WS_OVERLAPPED 标准窗口)")
+    return False
 
 if __name__ == '__main__':
     windows = get_all_windows()

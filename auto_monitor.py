@@ -13,7 +13,8 @@ class _MouseWatcher(QObject):
     内部类：负责运行 pynput 监听器。
     """
     # 发送鼠标释放时的坐标
-    released = Signal(int, int)
+    left_released = Signal(int, int)
+    right_released = Signal(int, int)
 
     def start_monitoring(self):
         self.listener = mouse.Listener(on_click=self.on_click)
@@ -21,7 +22,9 @@ class _MouseWatcher(QObject):
 
     def on_click(self, x, y, button, pressed):
         if button == mouse.Button.left and not pressed:
-            self.released.emit(x, y)
+            self.left_released.emit(x, y)
+        if button == mouse.Button.right and not pressed:
+            self.left_released.emit(x, y)
 
     def stop_monitoring(self):
         if hasattr(self, 'listener'):
@@ -54,8 +57,9 @@ class WindowWatcher(QObject):
         self.thread.started.connect(self.mouse_worker.start_monitoring)
         self.thread.finished.connect(self.mouse_worker.stop_monitoring)
 
-        #
-        self.mouse_worker.released.connect(self._handle_mouse_release)
+        # 绑定鼠标释放信号
+        self.mouse_worker.left_released.connect(self._handle_mouse_release)
+        self.mouse_worker.right_released.connect(self._handle_mouse_release)
 
     def start(self):
         if not self.thread.isRunning():

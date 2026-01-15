@@ -119,10 +119,10 @@ class WindowManager(QMainWindow):
 
         self.prev_windows = current_windows
 
-        logger.info("=== 开始刷新窗口列表 ===")
+        logger.debug("=== 开始刷新窗口列表 ===")
         self.source_list_widget.clear()
-        windows = win_api.get_all_windows(without_tool=True)
-        logger.info(f"成功获取到 {len(windows)} 个窗口")
+        windows = win_api.get_all_windows()
+        logger.debug(f"成功获取到 {len(windows)} 个窗口")
         for hwnd, title in windows:
 
             if int(self.winId()) == hwnd:
@@ -157,14 +157,14 @@ class WindowManager(QMainWindow):
             self.refresh_target_ui()
 
     def _scan_and_reorder_delay(self):
-        QTimer.singleShot(1, self._scan_and_reorder)
+        QTimer.singleShot(10, self._scan_and_reorder)
 
     def _scan_and_reorder(self):
         self._scan_for_child_windows()
         self.execute_reorder()
 
     def _scan_for_child_windows(self):
-        current_windows = win_api.get_all_windows()
+        current_windows = win_api.get_all_windows(filter=False)
         current_hwnds_set = {hwnd for hwnd, title in current_windows}
 
         if hasattr(self, "known_hwnds"):
@@ -181,20 +181,33 @@ class WindowManager(QMainWindow):
         if not targets:
             return
 
-        managed_pids = {}
-        for target in targets:
-            pid = win_api.get_window_pid(target.hwnd)
-            if pid:
-                managed_pids[pid] = target.hwnd
+        # 封装函数检测
+        for new_hwnd, new_title in current_windows:
+            if new_hwnd not in new_hwnds:
+                continue
 
-        for hwnd, title in current_windows:
-            if hwnd in new_hwnds:
-                new_pid = win_api.get_window_pid(hwnd)
+            for target in targets:
+                if win_api.is_son_window(target.hwnd, new_hwnd):
+                    self.engine.insert_derived_window(new_hwnd, new_title, target.hwnd)
+                    break
 
-                if new_pid in managed_pids:
-                    parent_hwnd = managed_pids[new_pid]
-                    self.engine.insert_derived_window(hwnd, title, parent_hwnd)
-        self.execute_reorder()
+        # 普通pid检测
+        # managed_pids = {}
+        # for target in targets:
+        #     pid = win_api.get_window_pid(target.hwnd)
+        #     if pid:
+        #         managed_pids[pid] = target.hwnd
+
+
+        # for hwnd, title in current_windows:
+        #     if hwnd in new_hwnds:
+        #         new_pid = win_api.get_window_pid(hwnd)
+        #
+        #         if new_pid in managed_pids:
+        #             parent_hwnd = managed_pids[new_pid]
+        #             self.engine.insert_derived_window(hwnd, title, parent_hwnd)
+
+        # self.execute_reorder()
 
     # === 上移、下移管理窗口 === #
     def move_item_up(self):

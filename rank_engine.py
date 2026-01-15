@@ -33,6 +33,7 @@ class WindowRankEngine:
         item_data.rank = rank
 
         self._targets.append(item_data)
+        self._recalculate_ranks()
         return True
 
     def insert_derived_window(self, child_hwnd, child_title, parent_hwnd):
@@ -56,12 +57,16 @@ class WindowRankEngine:
     def remove_window(self, item_data: ItemData):
         remove_hwnd = item_data.hwnd
         self._targets = [t for t in self._targets if t.hwnd != remove_hwnd]
+        self._recalculate_ranks()
         return True
 
     # === 移动窗口 === #
     def move_item(self, item_data: ItemData, direction: str):
         if direction not in ('up', 'down'):
             return False
+
+        current_main_idx = next(i for i, t in enumerate(self._targets) if t.hwnd == item_data.hwnd)
+        curr_start, curr_end = self._get_block_range(current_main_idx)
 
         target_idx = -1
         for idx, target in enumerate(self._targets):
@@ -70,17 +75,48 @@ class WindowRankEngine:
                 break
 
         if direction == 'up':
-            if target_idx > 0:
-                new_idx = target_idx - 1
-            else:
-                return False
-        elif direction == 'down':
-            if target_idx < len(self._targets) - 1:
-                new_idx = target_idx + 1
-            else:
+            if curr_start == 0:
                 return False
 
-        self._targets[target_idx], self._targets[new_idx] = self._targets[new_idx], self._targets[target_idx]
+            prev_main_idx = curr_start - 1
+            prev_start, prev_end = self._get_block_range(prev_main_idx)
+
+            block_a = self._targets[prev_start:prev_end]
+            block_b = self._targets[curr_start:curr_end]
+
+            self._targets[prev_start:curr_end] = block_b + block_a
+
+            # 原逻辑
+            # if target_idx > 0:
+            #     new_idx = target_idx - 1
+            # else:
+            #     return False
+        elif direction == 'down':
+            if curr_end >= len(self._targets):
+                return False
+
+            next_main_idx = -1
+            for i in range(curr_end, len(self._targets)):
+                if self._targets[i].window_type == 'STANDARD':
+                    next_main_idx = i
+                    break
+
+            next_start, next_end = self._get_block_range(next_main_idx)
+
+            block_a = self._targets[curr_start:curr_end]
+            block_b = self._targets[next_start:next_end]
+
+            self._targets[curr_start:next_end] = block_b + block_a
+
+            # 原逻辑
+            # if target_idx < len(self._targets) - 1:
+            #     new_idx = target_idx + 1
+            # else:
+            #     return False
+
+        self._recalculate_ranks()
+        # 原逻辑
+        # self._targets[target_idx], self._targets[new_idx] = self._targets[new_idx], self._targets[target_idx]
         return True
 
     # === 执行重排 === #
@@ -137,3 +173,28 @@ class WindowRankEngine:
                 cleaned = True
         return cleaned
 
+    # === 重新计算序号 === #
+    def _recalculate_ranks(self):
+        current_rank = 1
+        for target in self._targets:
+            if target.window_type == 'STANDARD':
+                target.rank = current_rank
+                current_rank += 1
+            else:
+                pass
+
+    # === 获取主窗口和子窗口的组合 === #
+    def _get_block_range(self, main_idx: int):
+        """
+        策略：列表结构通常是 [子1, 子2, 主A, 子3, 主B]
+        所以默认结构是 [子1, 子2, 主A]。
+        我们定义一个 Block 为：[属于该主窗口的所有前置子窗口 + 主窗口本身]
+        """
+        start = main_idx
+        while start > 0:
+            if self._targets[start - 1].window_type == 'TOOL':
+                start -= 1
+            else:
+                break
+        end = main_idx + 1
+        return start, end

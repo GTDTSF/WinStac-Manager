@@ -258,6 +258,9 @@ class WindowManager(QMainWindow):
             if int(self.winId()) == item_data.hwnd:
                 continue
 
+            if item_data.window_type == 'TOOL':
+                continue
+
             list_item = QListWidgetItem()
             widget = ui_widgets.TargetItemWidget(item_data=item_data)
 

@@ -241,3 +241,4 @@ class WindowRankEngine:
                 break
         end = main_idx + 1
         return start, end
+

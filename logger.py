@@ -14,7 +14,6 @@ def setup_logger():
     log_dir = base_dir / 'logs'
     # === 修改结束 ===
 
-    log_dir = Path('logs')
     log_dir.mkdir(exist_ok=True)
 
     # 日志格式：时间 | 级别 | 模块 | 消息

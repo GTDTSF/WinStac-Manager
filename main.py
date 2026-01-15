@@ -1,6 +1,8 @@
 # main.py
 import sys
 import qdarktheme
+import win32gui
+
 import win_api
 import ui_widgets
 from logger import logger
@@ -111,34 +113,47 @@ class WindowManager(QMainWindow):
     def refresh_window_list(self):
         current_windows = win_api.get_all_windows()
 
-        if not hasattr(self, 'prev_windows '):
-            self.prev_windows = []
+        current_hwnds = {hwnd for hwnd, title in current_windows if int(self.winId()) != hwnd}
 
-        if set(current_windows) == set(self.prev_windows):
-            return
+        for i in range(self.source_list_widget.count() - 1, -1, -1):
+            item = self.source_list_widget.item(i)
+            widget = self.source_list_widget.itemWidget(item)
+            if widget.item_data.hwnd not in current_hwnds:
+                self.source_list_widget.takeItem(i)
 
-        self.prev_windows = current_windows
+                win_api.clear_icon_cache(widget.item_data.hwnd)
 
-        logger.debug("=== 开始刷新窗口列表 ===")
-        self.source_list_widget.clear()
-        windows = win_api.get_all_windows()
-        logger.debug(f"成功获取到 {len(windows)} 个窗口")
-        for hwnd, title in windows:
+                hwnd = widget.item_data.hwnd
+                title = widget.item_data.title
 
-            if int(self.winId()) == hwnd:
-                continue
+                logger.info(f"[列表同步] 移除已关闭窗口: [{title}] (HWND: {hwnd})")
 
-            item_data = ui_widgets.ItemData(hwnd=hwnd, title=title)
+        existing_hwnds = set()
+        for i in range(self.source_list_widget.count()):
+            item = self.source_list_widget.item(i)
+            widget = self.source_list_widget.itemWidget(item)
+            existing_hwnds.add(widget.item_data.hwnd)
 
-            list_item = QListWidgetItem()
-            widget = ui_widgets.SourceItemWidget(item_data=item_data)
+        # logger.debug("=== 开始刷新窗口列表 ===")
+        # self.source_list_widget.clear()
+        # windows = win_api.get_all_windows()
+        # logger.info(f"成功获取到 {len(windows)} 个窗口")
+        for hwnd, title in current_windows:
+            if hwnd == int(self.winId()): continue
 
-            list_item.setSizeHint(widget.sizeHint())
+            if hwnd not in existing_hwnds:
+                logger.info(f"[列表同步] 发现新窗口: [{title}] (HWND: {hwnd})")
+                item_data = ui_widgets.ItemData(hwnd=hwnd, title=title)
 
-            self.source_list_widget.addItem(list_item)
-            self.source_list_widget.setItemWidget(list_item, widget)
+                list_item = QListWidgetItem()
+                widget = ui_widgets.SourceItemWidget(item_data=item_data)
 
-            logger.debug(f"成功添加窗口：句柄={hwnd}, 标题={title}")
+                list_item.setSizeHint(widget.sizeHint())
+
+                self.source_list_widget.addItem(list_item)
+                self.source_list_widget.setItemWidget(list_item, widget)
+
+                logger.debug(f"成功添加窗口：句柄={hwnd}, 标题={title}")
 
     # === 增加、移除管理窗口 === #
     def add_target(self, item):
@@ -197,7 +212,6 @@ class WindowManager(QMainWindow):
         #     pid = win_api.get_window_pid(target.hwnd)
         #     if pid:
         #         managed_pids[pid] = target.hwnd
-
 
         # for hwnd, title in current_windows:
         #     if hwnd in new_hwnds:
@@ -286,6 +300,11 @@ class WindowManager(QMainWindow):
 
 
 if __name__ == "__main__":
+    try:
+        win32gui.SetProcessDPIAware()
+    except AttributeError:
+        pass
+
     app = QApplication(sys.argv)
     qdarktheme.setup_theme("auto")
 

@@ -9,6 +9,7 @@ from PySide6.QtGui import QImage, QPixmap
 dwmapi = ctypes.WinDLL('dwmapi')
 dwmapi.DwmGetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD), wintypes.DWORD]
 
+_icon_cache = {}
 
 # === 获取句柄、窗口名称 === #
 def is_window_cloaked(hwnd: int):
@@ -59,6 +60,10 @@ def get_all_windows(filter=True):
 
 
 # === 获取窗口图标 === #
+def clear_icon_cache(hwnd):
+    if hwnd in _icon_cache:
+        del _icon_cache[hwnd]
+
 def get_window_hicon(hwnd: int):
     """获取窗口图标句柄（依次尝试窗口小图标、大图标、类小图标、类大图标）"""
     hicon = win32gui.SendMessage(hwnd, win32con.WM_GETICON, win32con.ICON_SMALL, 0)
@@ -84,6 +89,9 @@ def get_window_hicon(hwnd: int):
 
 def get_window_pixmap(hwnd: int, size: int = 24):
     """获取窗口图标并转换为QPixmap"""
+    if hwnd in _icon_cache:
+        return _icon_cache[hwnd]
+
     hicon = get_window_hicon(hwnd)
     if not hicon:
         return QPixmap()
@@ -91,6 +99,9 @@ def get_window_pixmap(hwnd: int, size: int = 24):
 
     pixmap = QPixmap.fromImage(image)
     icon = pixmap.scaled(size, size, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+
+    if not pixmap.isNull():
+        _icon_cache[hwnd] = icon
     return icon
 
 

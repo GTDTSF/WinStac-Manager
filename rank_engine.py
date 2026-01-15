@@ -121,48 +121,91 @@ class WindowRankEngine:
 
     # === 执行重排 === #
     def execute_reorder(self):
-        logger.info("=== 开始执行窗口重排序列 ===")
+        logger.info("=== 开始重排 ===")
         if not self._targets:
             return False
 
         pre_hwnd = None
 
-        for target in self._targets:
-            title = target.title
-            # 1. 基础存活检查
+        for idx, target in enumerate(self._targets):
+            # --- 1. 存活与可见性检查 ---
             if not win32gui.IsWindow(target.hwnd):
                 continue
 
-            # 2. 获取当前可见性
             is_visible = win32gui.IsWindowVisible(target.hwnd)
-            # === 核心逻辑：工具窗口休眠管理 === #
+
+            # 工具窗口逻辑
             if target.window_type == 'TOOL':
-                # 如果工具窗口隐藏了：跳过。
-                if not is_visible:
-                    continue
-
-                # 如果是可见的：参与排序，但不强制发送 Show 指令
+                if not is_visible: continue
                 force_show = False
-
-            # === 普通窗口逻辑 === #
             else:
-                # 如果主窗口最小化或隐藏，跳过排序
+                # 如果主窗口最小化或隐藏，跳过排序，避免把它强行弹出来
                 if win_api.is_minimized(target.hwnd) or not is_visible:
                     continue
                 force_show = True
 
-            # === 执行线性排序 === #
+            # --- 2. 核心排序逻辑 ---
+
+            # 确定我们要插在谁后面
             if pre_hwnd is None:
-                logger.info(f"  -> 置顶: {title}")
-                win_api.set_z_order(target.hwnd, win32con.HWND_TOPMOST, force_show=force_show)
-                win_api.set_z_order(target.hwnd, win32con.HWND_NOTOPMOST, force_show=force_show)
+                insert_after = win32con.HWND_TOP
             else:
-                logger.info(f"  -> 跟随：{title}")
-                win_api.set_z_order(target.hwnd, pre_hwnd, force_show=force_show)
+                insert_after = pre_hwnd
+
+            # 先确保它不是 TopMost (消除副作用)
+            win_api.set_z_order(target.hwnd, win32con.HWND_NOTOPMOST, force_show=force_show)
+
+            # 然后摆正位置
+            win_api.set_z_order(target.hwnd, insert_after, force_show=force_show)
 
             pre_hwnd = target.hwnd
-        logger.info(f"  - 结束")
+
         return True
+
+    # 原逻辑
+    # def execute_reorder(self):
+    #     logger.info("=== 开始执行窗口重排序列 ===")
+    #     if not self._targets:
+    #         return False
+    #
+    #     pre_hwnd = None
+    #
+    #     for target in self._targets:
+    #         title = target.title
+    #         # 1. 基础存活检查
+    #         if not win32gui.IsWindow(target.hwnd):
+    #             continue
+    #
+    #         # 2. 获取当前可见性
+    #         is_visible = win32gui.IsWindowVisible(target.hwnd)
+    #         # === 核心逻辑：工具窗口休眠管理 === #
+    #         if target.window_type == 'TOOL':
+    #             # 如果工具窗口隐藏了：跳过。
+    #             if not is_visible:
+    #                 continue
+    #
+    #             # 如果是可见的：参与排序，但不强制发送 Show 指令
+    #             force_show = False
+    #
+    #         # === 普通窗口逻辑 === #
+    #         else:
+    #             # 如果主窗口最小化或隐藏，跳过排序
+    #             if win_api.is_minimized(target.hwnd) or not is_visible:
+    #                 continue
+    #             force_show = True
+    #
+    #         # === 执行线性排序 === #
+    #         if pre_hwnd is None:
+    #             logger.info(f"  -> 置顶: {title}")
+    #             win_api.set_z_order(target.hwnd, win32con.HWND_TOPMOST, force_show=force_show)
+    #             win_api.set_z_order(target.hwnd, win32con.HWND_NOTOPMOST, force_show=force_show)
+    #         else:
+    #             logger.info(f"  -> 跟随：{title}")
+    #             win_api.set_z_order(target.hwnd, pre_hwnd, force_show=force_show)
+    #
+    #         pre_hwnd = target.hwnd
+    #     logger.info(f"  - 结束")
+    #     return True
 
     # === 检测窗口存活情况 ===#
     def clean_invalid_windows(self):
